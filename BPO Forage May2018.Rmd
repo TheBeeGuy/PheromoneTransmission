@@ -1,0 +1,139 @@
+
+```{r load packages,include=F}
+library(tidyverse)
+library(Rmisc)
+library(lme4)
+library(lmerTest)
+library(car)
+library(colorspace)
+library(lsmeans)
+library(pbkrtest)
+
+```
+
+
+```{r}
+##set working directory
+setwd("C:/Users/Rong/Box Sync/Projects/BPO_forage/")
+
+screen<-read.csv(file="Brood Pheromone Foraging.csv",sep = ",",header = T)#read in data
+
+
+#useful for correcting for overdispersion in models later on
+screen%>%mutate(RowID=1:dim(screen)[1])->screen
+
+#setting variables
+screen$Screens<-factor(screen$Screens, levels=c(0,1,2))
+screen$Time.point<-factor(screen$Time.point, levels=c(0,1,2))
+screen$Pheromone<-factor(screen$Pheromone, levels=c("None","BP","Ocimene"))
+options(contrasts = rep ("contr.treatment", 2))
+
+# Using Long Screen Data
+pol.screen<-screen%>%filter(Foraging.Type=="Pollen")
+nect.screen<-screen%>%filter(Foraging.Type=="Non-Pollen")
+
+pol.screen$RowID<-row.names(pol.screen)
+nect.screen$RowID<-row.names(nect.screen)
+
+
+
+#creating data sets of just the pollen foragers with relevant variables
+pol.join<-pol.screen%>%select(Colony.ID, Trial, Day, Screens, Pheromone, Time.point, Number.Foragers)
+
+nect.join<-nect.screen%>%select(Colony.ID, Trial, Day, Screens, Pheromone, Time.point, Number.Foragers)
+
+```
+
+
+
+
+```{r total and proportional foraging data}
+names(pol.join)[7]<-"Pollen.Foragers"
+names(nect.join)[7]<-"Nectar.Foragers"
+###Proportion###
+proportion.total<-left_join(pol.join, nect.join)%>%mutate(Total.Foragers=Pollen.Foragers+Nectar.Foragers,Proportion = Pollen.Foragers/(Total.Foragers+1))%>%select(-Nectar.Foragers)
+
+proportion.total$Screens<-factor(proportion.total$Screens)
+```
+
+
+
+
+```{r anova proportion}
+##theres a significant effect for pheromone treatment on the proportion of 
+mod.prop<-lmer(Proportion~Screens+Time.point+Pheromone+(1|Colony.ID),data = proportion.total)
+
+Anova(mod.prop, type= "III", test.statistic = "F") 
+pairs(lsmeans(mod.prop, ~ Pheromone), adjust = "none")
+
+
+```
+
+
+
+```{r testing normality of residuals}
+##mod.screen
+resid.screen<-resid(mod.prop)
+plot(density(resid(mod.prop)))
+
+shapiro.test(resid(mod.prop))
+
+qqnorm(resid(mod.prop))
+qqline(resid(mod.prop))
+
+#residuals have heavy tails, indicating they have extreme values in data set. There's also some curvature
+
+
+
+```
+
+
+
+
+```{r plotting variables}
+
+pd=position_dodge(.9)
+
+Yl_O_Pi<-c("#ffff99","#fdb462", "#fb8072")#brewer accent
+
+
+browngreen <- rainbow_hcl(4, start = 30, end = 300) ##colorspace
+
+```
+
+```{r figs proportional foraging}
+
+##proportion foraging for 
+Prop.phero.wi<-summarySEwithin(data=proportion.total, measurevar = "Proportion", withinvars = "Pheromone", idvar="Colony.ID", na.rm=T)
+
+proportion_fig1<-ggplot(data=Prop.phero.wi, aes(fill=Pheromone, x=Pheromone))+
+  geom_bar(aes(y=Proportion), stat="identity", position=pd,color="black")+
+    geom_errorbar(aes(ymin=Proportion-se,ymax=Proportion+se), position=pd,width=0.3)+
+  theme_bw(20)+
+    xlab("Pheromone Treatment")+
+  ylab("Proportion Foragers per min")+
+    guides(fill="none")+
+  scale_fill_manual(values=browngreen)
+proportion_fig1
+
+ggsave(filename = "proportion_fig1.pdf", plot=proportion_fig1, width = 5, height = 6,units = "in")
+
+##proportion foraging
+Prop.screenXphero.within<-summarySEwithin(data=proportion.total, measurevar = "Proportion", withinvars = "Pheromone", idvar="Colony.ID", betweenvars = "Screens", na.rm=T)
+
+proportion_fig2<-ggplot(data=Prop.screenXphero.within, aes(fill=Screens, x=Screens))+
+  geom_bar(aes(y=Proportion), stat="identity", position=pd,color="black")+
+    geom_errorbar(aes(ymin=Proportion-se,ymax=Proportion+se), position=pd,width=0.3)+
+  theme_bw(20)+
+    facet_wrap(~Pheromone)+
+    xlab("Screens Treatment")+
+  ylab("Proportion Foragers per min")+
+    guides(fill="none")+
+  scale_fill_manual(values=Yl_O_Pi)+scale_x_discrete(labels=c("Full", "Lim", "Rest"))
+proportion_fig2
+
+ggsave(filename = "proportion_fig2.pdf", plot=proportion_fig2, width = 10, height = 8 ,units = "in")
+
+```
+
+
